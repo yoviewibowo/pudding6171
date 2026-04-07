@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Platform untuk Upload Dokumentasi Kegiatan Terintegrasi - BPS Kota Pontianak</title>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&display=swap" rel="stylesheet">
+
+<style>
+body { font-family:'Poppins',sans-serif; background:#f8f1e7; margin:0; }
+.container { max-width:520px; margin:10px auto; background:white; padding:18px; border-radius:16px; box-shadow:0 6px 18px rgba(0,0,0,0.1);} 
+h1{text-align:center;font-size:20px;} 
+.card{padding:12px;margin-top:8px;border-radius:10px;background:#f9f9f9;cursor:pointer;display:flex;justify-content:space-between;align-items:center;transition:0.2s;}
+.card:hover{background:#eee; transform:scale(1.01);} 
+button{width:100%;padding:12px;margin-top:10px;border-radius:10px;border:none;background:#b08968;color:white;font-weight:bold;cursor:pointer;transition:0.2s;}
+button:hover{background:#9c7358;}
+button:disabled{opacity:0.5}
+.topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;}
+.hidden{display:none;}
+.badge{padding:4px 8px;border-radius:6px;font-size:12px;color:white;}
+.pending{background:orange;} .approved{background:green;} .rejected{background:red;} .none{background:gray;}
+.small{font-size:12px;color:gray;}
+.link-btn{font-size:12px; color:#6b4f3a; text-decoration:underline; cursor:pointer;}
+
+/* SPINNER */
+.spinner {
+  border: 4px solid #f3f3f3;
+  border-top: 4px solid #b08968;
+  border-radius: 50%;
+  width: 30px;
+  height: 30px;
+  animation: spin 1s linear infinite;
+  margin: 10px auto;
+}
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+</style>
+</head>
+
+<body>
+
+<div class="container" id="loginPage">
+  <h1>🍮 PUDDING </h1>
+  <input id="username" placeholder="Username">
+  <input id="password" type="password" placeholder="Password">
+  <button onclick="login()">Login</button>
+</div>
+
+<div class="container hidden" id="listPage">
+  <div class="topbar">
+    <button style="width:auto" onclick="goBack()">⬅ Back</button>
+    <b id="title"></b>
+    <button style="width:auto" onclick="logout()">Logout</button>
+  </div>
+  <div id="listData"></div>
+  <div id="spinner" class="spinner hidden"></div>
+</div>
+
+<div class="container hidden" id="uploadPage">
+  <div class="topbar">
+    <button style="width:auto" onclick="back()">⬅ Back</button>
+    <b id="uploadTitle"></b>
+  </div>
+
+  <button onclick="getLocation()">📍 Ambil GPS</button>
+  <button onclick="manualLocation()">✏️ Manual</button>
+  <p id="lokasi" class="small"></p>
+
+  <input type="file" id="foto" accept="image/*" capture="environment">
+  <img id="preview">
+
+  <button id="btnUpload" onclick="submitData()">Upload</button>
+</div>
+
+<script>
+const scriptURL = "https://script.google.com/macros/s/AKfycbzo5tQ-P0fqLJGA7ECKSze6H9BAK71jnVTZRHCSVWT6U0OdoX5z679udvyZpGZNGdQ5/exec";
+let role="";
+let cacheData=[];
+let selected={};
+let historyStack=[];
+let lat="", lon="";
+let autoRefresh;
+
+// ===== LOADING =====
+function showLoading(){ spinner.classList.remove("hidden"); }
+function hideLoading(){ spinner.classList.add("hidden"); }
+
+function postData(data){
+  showLoading();
+  return fetch(scriptURL,{
+    method:"POST",
+    headers:{"Content-Type":"text/plain"},
+    body:JSON.stringify(data)
+  })
+  .then(res=>res.json())
+  .finally(()=>hideLoading());
+}
+
+// ===== AUTO REFRESH =====
+function startAutoRefresh(){
+  if(autoRefresh) clearInterval(autoRefresh);
+  autoRefresh = setInterval(()=>{
+    if(role==="ppl") loadPPL();
+    else loadPML();
+  },10000);
+}
+function stopAutoRefresh(){
+  if(autoRefresh) clearInterval(autoRefresh);
+}
+
+// ===== LOGIN =====
+function login(){
+  postData({action:"login",username:username.value,password:password.value})
+  .then(res=>{
+    if(res.status==="success"){
+      role=res.role;
+      localStorage.setItem("user",res.username);
+      loginPage.classList.add("hidden");
+      listPage.classList.remove("hidden");
+      historyStack=[];
+      if(role==="ppl") loadPPL();
+      else loadPML();
+      startAutoRefresh();
+    }
+  });
+}
+
+function logout(){
+  stopAutoRefresh();
+  location.reload();
+}
+
+function goBack(){ if(historyStack.length>0){ historyStack.pop()(); }}
+
+// ================= PPL =================
+function loadPPL(){
+  title.innerText="Pilih Kegiatan";
+  postData({action:"getAssignmentFull",user:localStorage.getItem("user")})
+  .then(data=>{
+    cacheData=data;
+    let group={};
+    data.forEach(d=>{
+      if(!group[d.kegiatan]) group[d.kegiatan]=[];
+      group[d.kegiatan].push(d);
+    });
+
+    listData.innerHTML = Object.keys(group).map(k=>
+      `<div class="card" onclick="pplWilayah('${k}')">${k}</div>`
+    ).join("");
+
+    historyStack=[];
+  });
+}
+
+function pplWilayah(keg){
+  historyStack.push(()=>loadPPL());
+  selected.kegiatan=keg;
+  title.innerText="Pilih Wilayah";
+
+  let data=cacheData.filter(d=>d.kegiatan===keg);
+  let group={};
+  data.forEach(d=>{
+    if(!group[d.wilayah]) group[d.wilayah]=[];
+    group[d.wilayah].push(d);
+  });
+
+  listData.innerHTML = Object.keys(group).map(w=>
+    `<div class="card" onclick="pplAssign('${w}')">${w}</div>`
+  ).join("");
+}
+
+function pplAssign(wil){
+  historyStack.push(()=>pplWilayah(selected.kegiatan));
+  selected.wilayah=wil;
+  title.innerText="Pilih Responden";
+
+  let data=cacheData.filter(d=>d.wilayah===wil && d.kegiatan===selected.kegiatan);
+
+  let html="";
+  data.forEach(d=>{
+    let cls="none", label="Belum Upload";
+    if(d.status==="Pending"){cls="pending";label="Pending";}
+    if(d.status==="Approved"){cls="approved";label="Approved";}
+    if(d.status==="Rejected"){cls="rejected";label="Rejected";}
+
+    html+=`<div class="card" onclick="openUpload('${d.id}','${d.responden}','${d.status}')">
+      <div>${d.responden}</div>
+      <span class="badge ${cls}">${label}</span>
+    </div>`;
+  });
+
+  listData.innerHTML=html;
+}
+
+function openUpload(id,res,status){
+  selected.id=id;
+  uploadTitle.innerText=res;
+
+  foto.value="";
+  preview.src="";
+  lokasi.innerText="";
+  lat=""; lon="";
+
+  btnUpload.disabled = (status==="Approved");
+
+  listPage.classList.add("hidden");
+  uploadPage.classList.remove("hidden");
+}
+
+function back(){
+  uploadPage.classList.add("hidden");
+  listPage.classList.remove("hidden");
+}
+
+foto.onchange=e=>preview.src=URL.createObjectURL(e.target.files[0]);
+
+function getLocation(){
+  navigator.geolocation.getCurrentPosition(pos=>{
+    lat=pos.coords.latitude;
+    lon=pos.coords.longitude;
+    lokasi.innerText=`${lat},${lon}`;
+  });
+}
+
+function manualLocation(){
+  let input=prompt("lat,lon");
+  if(!input) return;
+  let parts=input.split(",");
+  lat=parts[0].trim();
+  lon=parts[1].trim();
+  lokasi.innerText=`${lat},${lon}`;
+}
+
+function getBase64(file){
+  return new Promise(res=>{
+    let r=new FileReader();
+    r.readAsDataURL(file);
+    r.onload=()=>res(r.result);
+  });
+}
+
+async function submitData(){
+  let file=foto.files[0];
+  if(!file) return alert("Foto wajib");
+
+  let base64=await getBase64(file);
+  let maps=`https://maps.google.com/?q=${lat},${lon}`;
+
+  await postData({action:"upload",id_assign:selected.id,foto:base64,lat:lat,lon:lon,maps:maps});
+
+  alert("✅ Upload berhasil");
+
+  loadPPL();
+  setTimeout(()=>pplAssign(selected.wilayah),300);
+}
+
+// ================= PML =================
+function loadPML(){
+  title.innerText="Pilih Kegiatan";
+  postData({action:"getAllByPML",user:localStorage.getItem("user")})
+  .then(data=>{
+    cacheData=data;
+    let group={};
+    data.forEach(d=>{
+      if(!group[d.kegiatan]) group[d.kegiatan]=[];
+      group[d.kegiatan].push(d);
+    });
+
+    listData.innerHTML = Object.keys(group).map(k=>
+      `<div class="card" onclick="pmlPPL('${k}')">${k}</div>`
+    ).join("");
+  });
+}
+
+function pmlPPL(keg){
+  historyStack.push(()=>loadPML());
+  selected.kegiatan=keg;
+  title.innerText="Pilih PPL";
+
+  let data=cacheData.filter(d=>d.kegiatan===keg);
+  let group={};
+  data.forEach(d=>{
+    if(!group[d.ppl]) group[d.ppl]=[];
+    group[d.ppl].push(d);
+  });
+
+  listData.innerHTML = Object.keys(group).map(p=>
+    `<div class="card" onclick="pmlWilayah('${p}')">${p}</div>`
+  ).join("");
+}
+
+function pmlWilayah(ppl){
+  historyStack.push(()=>pmlPPL(selected.kegiatan));
+  selected.ppl=ppl;
+  title.innerText="Pilih Wilayah";
+
+  let data=cacheData.filter(d=>d.ppl===ppl && d.kegiatan===selected.kegiatan);
+  let group={};
+  data.forEach(d=>{
+    if(!group[d.wilayah]) group[d.wilayah]=[];
+    group[d.wilayah].push(d);
+  });
+
+  listData.innerHTML = Object.keys(group).map(w=>
+    `<div class="card" onclick="pmlAssign('${w}')">${w}</div>`
+  ).join("");
+}
+
+function pmlAssign(wil){
+  historyStack.push(()=>pmlWilayah(selected.ppl));
+  selected.wilayah=wil;
+  title.innerText="Verifikasi";
+
+  let data=cacheData.filter(d=>d.wilayah===wil && d.ppl===selected.ppl);
+
+  let html="";
+  data.forEach(d=>{
+    let cls="pending";
+    if(d.status==="Approved") cls="approved";
+    if(d.status==="Rejected") cls="rejected";
+
+    html+=`<div class="card">
+      <div style="width:100%">
+        ${d.responden}<br>
+        <span class="badge ${cls}">${d.status}</span><br>
+        ${d.foto?`<a href="${d.foto}" target="_blank">📷 Foto</a>`:""}
+        ${d.maps?`<a href="${d.maps}" target="_blank">🗺️ Maps</a>`:""}
+        <button onclick="approve('${d.id}')">✔</button>
+        <button onclick="reject('${d.id}')">✖</button>
+      </div>
+    </div>`;
+  });
+
+  listData.innerHTML=html;
+}
+
+function approve(id){
+  postData({action:"updateStatus",id:id,status:"Approved"})
+  .then(()=>{
+    alert("Approved");
+    loadPML();
+    setTimeout(()=>pmlAssign(selected.wilayah),300);
+  });
+}
+
+function reject(id){
+  let note=prompt("Catatan:");
+  postData({action:"updateStatus",id:id,status:"Rejected",catatan:note})
+  .then(()=>{
+    alert("Rejected");
+    loadPML();
+    setTimeout(()=>pmlAssign(selected.wilayah),300);
+  });
+}
+</script>
+
+</body>
+</html>
