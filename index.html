@@ -52,7 +52,8 @@ button:disabled{opacity:0.5}
   <div class="topbar">
     <button style="width:auto" onclick="goBack()">⬅ Back</button>
     <b id="title"></b>
-    <button style="width:auto" onclick="logout()">Logout</button>
+    <button onclick="manualRefresh()" style="width:auto">🔄 Refresh</button>
+    <button onclick="logout()" style="width:auto">Logout</button>
   </div>
   <div id="listData"></div>
   <div id="spinner" class="spinner hidden"></div>
@@ -122,9 +123,32 @@ function login(){
       historyStack=[];
       if(role==="ppl") loadPPL();
       else loadPML();
-      startAutoRefresh();
+      //startAutoRefresh();
     }
   });
+}
+
+function manualRefresh(){
+  if(role==="ppl"){
+    loadPPL();
+
+    setTimeout(()=>{
+      if(selected.wilayah){
+        pplAssign(selected.wilayah);
+      }
+    },200);
+
+  } else {
+
+    loadPML();
+
+    setTimeout(()=>{
+      if(selected.wilayah){
+        pmlAssign(selected.wilayah);
+      }
+    },200);
+
+  }
 }
 
 function logout(){
